@@ -1238,6 +1238,162 @@ body {
   margin-bottom: 0;
 }
 
+/* ---------- error hotspots ---------- */
+
+.hotspot-panel {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.hotspot-panel .actions {
+  margin-top: 10px;
+}
+
+.hotspot-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 10px;
+}
+
+.hotspot-chip {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: var(--muted);
+  background: rgba(139, 152, 184, 0.14);
+}
+
+.hotspot-chip--ok { color: var(--ok); background: rgba(52, 201, 142, 0.12); }
+.hotspot-chip--err { color: var(--err); background: rgba(242, 109, 109, 0.14); }
+
+.hotspot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.hotspot-item {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--err);
+  border-radius: 8px;
+}
+
+.hotspot-item__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+  text-align: left;
+  flex-wrap: wrap;
+}
+
+.hotspot-item__head:hover {
+  background: rgba(79, 140, 255, 0.06);
+  border-radius: 8px;
+}
+
+.hotspot-item__rank {
+  font-family: var(--mono);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.hotspot-item__path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: #ffb86b;
+  word-break: break-all;
+}
+
+.hotspot-item__param {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #5eead4;
+  background: rgba(94, 234, 212, 0.12);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+.hotspot-item__stats {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hotspot-item__detail {
+  padding: 0 10px 8px;
+}
+
+.hotspot-item__samples {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0 6px;
+}
+
+.hotspot-item__samples code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: #ffb86b;
+}
+
+.hotspot-occurrences {
+  list-style: none;
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hotspot-occurrences li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.hotspot-occurrence__index {
+  font-family: var(--mono);
+  color: #ffb86b;
+  font-weight: 600;
+}
+
+.hotspot-occurrence__pointer {
+  font-family: var(--mono);
+  color: var(--accent);
+}
+
+.hotspot-occurrence__msg {
+  color: var(--muted);
+}
+
 /* Highlight flash when a sample is located from the contribution list. */
 .sample-editor {
   border-radius: 8px;

@@ -13,6 +13,7 @@ const { anonymizeSamples } = require("./anonymize");
 const { buildSlice } = require("./slice");
 const { migrateSamples } = require("./migrate");
 const { mineRelations, enhanceSchema } = require("./relation");
+const { analyzeHotspots } = require("./hotspot");
 
 function createApp() {
   const app = express();
@@ -60,6 +61,23 @@ function createApp() {
       params: e.params,
     }));
     res.json({ valid, errors });
+  });
+
+  // Error hotspot analysis: validate up to 200 pasted samples against the
+  // current schema and cluster the Ajv errors by schemaPath + keyword
+  // (required / additionalProperties additionally split by the offending
+  // property), so one rule failing at many array indexes forms one cluster.
+  app.post("/api/hotspots", (req, res) => {
+    const { schema, samples } = req.body || {};
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+      return res.status(400).json({ error: "Request body must contain a 'schema' object." });
+    }
+    try {
+      res.json(analyzeHotspots({ schema, samples }));
+    } catch (err) {
+      const status = err.status && err.status < 500 ? err.status : 500;
+      res.status(status).json({ error: status === 500 ? "Internal server error" : err.message });
+    }
   });
 
   // Diff two schema versions; changes are classified per request/response perspective.

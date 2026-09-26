@@ -81,6 +81,98 @@ test("POST /api/validate rejects an invalid schema", async () => {
   assert.match(data.error, /Invalid schema/);
 });
 
+test("POST /api/hotspots clusters errors by rule and splits by property params", async () => {
+  const schema = {
+    type: "object",
+    properties: {
+      id: { type: "integer" },
+      name: { type: "string" },
+      tags: { type: "array", items: { type: "string" } },
+    },
+    required: ["id", "name"],
+    additionalProperties: false,
+  };
+  const { status, data } = await post("/api/hotspots", {
+    schema,
+    samples: [
+      { id: "x", tags: ["a", 1], extra: true }, // id type, item type, name, extra
+      { id: 1, name: "ok", tags: ["a"] }, // valid
+      { id: 2, tags: [2, 3], oops: 1 }, // 2 item errors, name, oops
+    ],
+  });
+  assert.equal(status, 200);
+  assert.equal(data.total, 3);
+  assert.equal(data.validCount, 1);
+  assert.equal(data.invalidCount, 2);
+  assert.equal(data.errorCount, 8);
+  assert.equal(data.clusterCount, 5);
+
+  // Sorted by affected-sample count descending: the shared "name" required
+  // violation and the items/type rule both touch 2 samples and lead.
+  const [first, second] = data.clusters;
+  assert.equal(first.sampleCount, 2);
+  assert.equal(second.sampleCount, 2);
+  const leaders = [first, second];
+  const nameCluster = leaders.find((c) => c.keyword === "required");
+  assert.equal(nameCluster.missingProperty, "name");
+  assert.equal(nameCluster.errorCount, 2);
+  assert.deepEqual(nameCluster.sampleIndexes, [0, 2]);
+  const itemsCluster = leaders.find((c) => c.keyword === "type");
+  assert.equal(itemsCluster.schemaPath, "#/properties/tags/items/type");
+  assert.equal(itemsCluster.errorCount, 3);
+  assert.deepEqual(
+    itemsCluster.occurrences.map((o) => [o.index, o.pointer]),
+    [
+      [0, "/tags/1"],
+      [2, "/tags/0"],
+      [2, "/tags/1"],
+    ]
+  );
+
+  // required splits per missingProperty, additionalProperties per property.
+  const idCluster = data.clusters.find((c) => c.schemaPath === "#/properties/id/type");
+  assert.equal(idCluster.sampleCount, 1);
+  assert.deepEqual(idCluster.sampleIndexes, [0]);
+  const extraProps = data.clusters
+    .filter((c) => c.keyword === "additionalProperties")
+    .map((c) => c.additionalProperty)
+    .sort();
+  assert.deepEqual(extraProps, ["extra", "oops"]);
+});
+
+test("POST /api/hotspots validates its input", async () => {
+  const noSchema = await post("/api/hotspots", { samples: [] });
+  assert.equal(noSchema.status, 400);
+  assert.match(noSchema.data.error, /'schema' object/);
+
+  const noSamples = await post("/api/hotspots", { schema: {} });
+  assert.equal(noSamples.status, 400);
+  assert.match(noSamples.data.error, /'samples' array/);
+
+  const tooMany = await post("/api/hotspots", {
+    schema: {},
+    samples: Array.from({ length: 201 }, () => 1),
+  });
+  assert.equal(tooMany.status, 400);
+  assert.match(tooMany.data.error, /200/);
+
+  const atLimit = await post("/api/hotspots", {
+    schema: { type: "integer" },
+    samples: Array.from({ length: 200 }, () => 1),
+  });
+  assert.equal(atLimit.status, 200);
+  assert.equal(atLimit.data.total, 200);
+  assert.equal(atLimit.data.validCount, 200);
+  assert.equal(atLimit.data.clusterCount, 0);
+
+  const invalidSchema = await post("/api/hotspots", {
+    schema: { type: "not-a-type" },
+    samples: [1],
+  });
+  assert.equal(invalidSchema.status, 422);
+  assert.match(invalidSchema.data.error, /Invalid schema/);
+});
+
 test("POST /api/diff classifies changes per perspective", async () => {
   const oldS = (
     await post("/api/infer", { samples: [{ id: 1, name: "a" }] })
