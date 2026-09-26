@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { validateSample } from "../api";
 import { DEFAULT_VALIDATE_SAMPLE } from "../defaultSamples";
+import HotspotPanel from "./HotspotPanel.jsx";
 
 const TARGET_META = {
   infer: "按样本归纳出的契约校验",
@@ -119,6 +120,8 @@ export default function ValidatePanel({ schema, variantSchema, target = "infer",
           )}
         </div>
       )}
+
+      <HotspotPanel schema={activeSchema} />
     </div>
   );
 }

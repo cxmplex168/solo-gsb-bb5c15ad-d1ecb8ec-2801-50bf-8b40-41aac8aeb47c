@@ -851,6 +851,117 @@ test("POST /api/relation/enhance validates its input shape", async () => {
   assert.match(badId.data.error, /rule id/);
 });
 
+test("POST /api/hotspots clusters errors by rule and ranks hotspots", async () => {
+  const { data: inferred } = await post("/api/infer", {
+    samples: [
+      { id: 1, name: "a", tags: ["x"] },
+      { id: 2, name: "b", tags: ["y"] },
+    ],
+  });
+  const res = await post("/api/hotspots", {
+    schema: inferred.schema,
+    samples: [
+      { id: 1, name: "ok", tags: ["a", 1, true] }, // two item errors, one rule
+      { id: "x", tags: [null] }, // id type + missing name + one item error
+      { id: 3, name: "fine", tags: ["z"] }, // valid
+    ],
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.data.total, 3);
+  assert.equal(res.data.validSamples, 1);
+  assert.equal(res.data.invalidSamples, 2);
+  assert.equal(res.data.errorCount, 5);
+  assert.equal(res.data.clusterCount, 3);
+
+  // The items/type rule fired at three different array indexes across two
+  // samples: one cluster, ranked first by affected sample count.
+  const [first] = res.data.clusters;
+  assert.equal(first.keyword, "type");
+  assert.equal(first.schemaPath, "#/properties/tags/items/type");
+  assert.equal(first.affectedSamples, 2);
+  assert.equal(first.errorCount, 3);
+  assert.deepEqual(first.sampleIndexes, [0, 1]);
+  assert.deepEqual(
+    first.instances.map((i) => [i.sampleIndex, i.pointer]),
+    [
+      [0, "/tags/1"],
+      [0, "/tags/2"],
+      [1, "/tags/0"],
+    ]
+  );
+  assert.equal(first.instancesTruncated, false);
+
+  const required = res.data.clusters.find((c) => c.keyword === "required");
+  assert.equal(required.missingProperty, "name");
+  assert.deepEqual(required.sampleIndexes, [1]);
+});
+
+test("POST /api/hotspots splits required and additionalProperties per property", async () => {
+  const res = await post("/api/hotspots", {
+    schema: {
+      type: "object",
+      properties: { a: { type: "integer" }, b: { type: "integer" } },
+      required: ["a", "b"],
+      additionalProperties: false,
+    },
+    samples: [{}, { a: 1, extra: true }],
+  });
+  assert.equal(res.status, 200);
+  // required#a, required#b, additionalProperties#extra: three clusters.
+  assert.equal(res.data.clusterCount, 3);
+  const requiredClusters = res.data.clusters.filter((c) => c.keyword === "required");
+  assert.deepEqual(
+    requiredClusters.map((c) => c.missingProperty).sort(),
+    ["a", "b"]
+  );
+  const b = requiredClusters.find((c) => c.missingProperty === "b");
+  assert.deepEqual(b.sampleIndexes, [0, 1]);
+  const extra = res.data.clusters.find((c) => c.keyword === "additionalProperties");
+  assert.equal(extra.additionalProperty, "extra");
+  assert.deepEqual(extra.sampleIndexes, [1]);
+  // Ranked by affected sample count: required#b (2 samples) leads.
+  assert.equal(res.data.clusters[0].missingProperty, "b");
+});
+
+test("POST /api/hotspots accepts an empty sample set", async () => {
+  const res = await post("/api/hotspots", { schema: {}, samples: [] });
+  assert.equal(res.status, 200);
+  assert.equal(res.data.total, 0);
+  assert.equal(res.data.clusterCount, 0);
+  assert.deepEqual(res.data.clusters, []);
+});
+
+test("POST /api/hotspots validates its input", async () => {
+  const noSchema = await post("/api/hotspots", { samples: [] });
+  assert.equal(noSchema.status, 400);
+  assert.match(noSchema.data.error, /'schema' object/);
+
+  const noSamples = await post("/api/hotspots", { schema: {} });
+  assert.equal(noSamples.status, 400);
+  assert.match(noSamples.data.error, /'samples' array/);
+
+  const tooMany = await post("/api/hotspots", {
+    schema: {},
+    samples: Array.from({ length: 201 }, () => 1),
+  });
+  assert.equal(tooMany.status, 400);
+  assert.match(tooMany.data.error, /200/);
+
+  const atLimit = await post("/api/hotspots", {
+    schema: {},
+    samples: Array.from({ length: 200 }, () => 1),
+  });
+  assert.equal(atLimit.status, 200);
+  assert.equal(atLimit.data.total, 200);
+
+  const invalidSchema = await post("/api/hotspots", {
+    schema: { type: "not-a-type" },
+    samples: [1],
+  });
+  assert.equal(invalidSchema.status, 422);
+  assert.match(invalidSchema.data.error, /Invalid schema/);
+});
+
 test("malformed JSON body gets a JSON 400", async () => {  const res = await fetch(`${base}/api/infer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

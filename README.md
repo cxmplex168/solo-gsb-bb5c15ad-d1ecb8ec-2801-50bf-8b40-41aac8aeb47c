@@ -19,6 +19,10 @@
 保留 JSON 类型的假名，先预览各规则命中情况再一键复制；
 也可在 Schema 树勾选 1～20 个节点生成**契约切片**——仅保留所选节点及必要祖先结构的独立
 Schema，并同步投影当前样本（后端用 Ajv 逐条校验投影，任一失败则不产出）；
+还可在校验页粘贴最多 200 条待检样本做**错误热点**分析——后端用 Ajv 逐条校验并按规则聚簇
+（`schemaPath` + `keyword`；`required`/`additionalProperties` 按具体属性分簇，同一规则在不同
+数组下标的报错归为一簇），每簇给出受影响样本数、错误次数、样本索引与原始实例 Pointer，
+按受影响样本数降序定位最集中的契约违规点；
 还可做**字段关系挖掘**——在每个对象 Pointer 作用域内统计字段出现集合（数组元素按元素独立计数、
 不跨作用域关联），找出支持数 ≥ 2、置信度 100% 的「出现 A 必出现 B」与「A/B 互斥」候选（蕴含做
 传递约简），勾选后生成加入 `dependentRequired`、`not/required` 组合的增强 Schema（全部原样本经
@@ -32,7 +36,9 @@ Ajv 复验通过才产出）。
 docker compose up --build
 ```
 
-启动后访问：**http://localhost:8080**
+启动后访问：**http://localhost:8080** —— Web 界面与 `/api/*` 接口同端口
+（如 `GET http://localhost:8080/api/health`、`POST http://localhost:8080/api/hotspots`）。
+唯一可配环境变量为 `PORT`（默认 `8080`），Compose 中已在 `docker-compose.yml` 固定为 8080。
 
 > 依赖安装、前端构建、后端运行全部包含在该命令内，无需任何本地环境（除 Docker）。
 > 不使用 Compose 时亦可：`docker build -t json-contract-studio . && docker run -p 8080:8080 json-contract-studio`
@@ -55,6 +61,11 @@ docker compose up --build
 - **复制 Schema**：一键复制完整 Schema JSON 到剪贴板。
 - **校验新样本**：基于 Ajv（`allErrors`），错误按 JSON Pointer（如 `/tags/0`）展示，
   并附带关键字、信息与对应规则路径。
+- **错误热点**：在「③ 校验新样本」页粘贴一个 JSON 数组作为待检样本集（最多 200 条），
+  后端用 Ajv 按当前校验目标逐条校验，并把错误按**规则**聚簇——`schemaPath` + `keyword` 相同的
+  报错归为一簇（同一规则在不同数组下标的报错自然合并），但 `required` 按 `missingProperty`、
+  `additionalProperties` 按 `additionalProperty` 拆分为不同簇。每簇给出受影响样本数、错误次数、
+  样本索引与原始实例 Pointer，按受影响样本数降序展示、可展开详情；Schema 变化时旧结果自动清空。
 - **样本贡献度**：在「① 样本输入」区一键做留一法分析——逐条移除样本并重新归纳 Schema，
   与完整样本集的归纳结果按规范化后的规则对比，判定每条样本为**关键**（移除后规则变化）
   或**冗余**（移除后规则完全一致），并列出受影响的 JSON Pointer；结果区展示关键/冗余数量，
@@ -397,6 +408,28 @@ Schema），或直接调用 `POST /api/relation/mine` 与 `POST /api/relation/en
 - 单次最多 200 条样本；样本集非数组 / 为空、规则 id 非字符串返回 400，Schema 无法编译或
   复验失败返回 422。
 
+## 错误热点：聚簇规则与入口
+
+入口：**http://localhost:8080** 页面的「③ 校验新样本 → 错误热点」区（需先归纳出 Schema，
+或生成事件变体契约并切换校验目标），或直接调用 `POST /api/hotspots`。粘贴一个 JSON 数组作为
+待检样本集（最多 200 条），后端用 Ajv（`allErrors`）按**当前校验目标**逐条校验，再把全部错误
+按规则聚簇，帮助定位「最集中」的契约违规点。
+
+**聚簇键（cluster key）**：
+
+- 默认取 Ajv 错误的 `schemaPath` + `keyword`：同一条规则在不同样本、不同数组下标
+  （如 `/tags/0` 与 `/tags/1`）触发的报错归为一簇。
+- 例外拆分：`required` 按 `params.missingProperty`、`additionalProperties` 按
+  `params.additionalProperty` 分簇——同一个 `required` 规则缺 `name` 与缺 `phone` 是两簇。
+
+**簇内容与排序**：每簇给出受影响样本数（去重）、错误次数（不去重）、受影响样本索引与
+原始实例 Pointer（含样本序号、Ajv 信息，单簇超过 100 条实例时截断并标注）；簇按受影响样本数
+降序排列（并列时按错误次数、簇 id 排序），点击单簇展开详情。全部样本通过时明确提示无热点。
+
+- 输入必须是一个 JSON 数组；非数组或超过 200 条时前端在提交前拦截，接口返回 `400` 及明确
+  错误信息；Schema 无法编译返回 `422`。
+- 重新归纳或切换校验目标后，旧热点结果自动失效清空，需重新分析。
+
 ## 本地开发
 
 ```bash
@@ -410,7 +443,7 @@ npm run dev:client   # 前端 http://localhost:5173（/api 代理到 8080）
 ## 测试
 
 ```bash
-npm test             # node:test，覆盖归纳引擎、契约比较器、反例生成器、样本影响扫描、样本贡献度、事件变体契约、匿名化导出、契约切片、历史样本迁移、字段关系挖掘、HTTP API 与发布门禁（222 项）
+npm test             # node:test，覆盖归纳引擎、契约比较器、反例生成器、样本影响扫描、样本贡献度、事件变体契约、匿名化导出、契约切片、历史样本迁移、字段关系挖掘、错误热点聚簇、HTTP API 与发布门禁（235 项）
 ```
 
 ## API
@@ -420,6 +453,7 @@ npm test             # node:test，覆盖归纳引擎、契约比较器、反例
 | GET | `/api/health` | — | `{ "status": "ok" }` |
 | POST | `/api/infer` | `{ "samples": [<any>, ...] }` | `{ schema, paths, sampleCount }` |
 | POST | `/api/validate` | `{ "schema": {...}, "sample": <any> }` | `{ valid, errors: [{ path, pointer, schemaPath, keyword, message, params }] }` |
+| POST | `/api/hotspots` | `{ "schema": {...}, "samples": [<any>, ...] }`（≤ 200 条） | `{ total, validSamples, invalidSamples, errorCount, clusterCount, clusters: [{ id, schemaPath, keyword, missingProperty?, additionalProperty?, affectedSamples, errorCount, sampleIndexes, instances: [{ sampleIndex, pointer, message, params }], instancesTruncated }] }`（按受影响样本数降序） |
 | POST | `/api/diff` | `{ "oldSchema": {...}, "newSchema": {...}, "perspective": "request" \| "response" }` | `{ perspective, changes: [{ pointer, kind, field?, severity, oldRule, newRule, reason }], summary: { breaking, compatible, info } }` |
 | POST | `/api/counterexample` | `{ oldSchema, newSchema, perspective, kind, pointer }` | `{ constructible, sample?, oldResult: { valid, errors }, newResult: { valid, errors }, reason? }` |
 | POST | `/api/scan` | `{ oldSchema, newSchema, samples: [<any>, ...] }`（≤ 200 条） | `{ total, summary: { both, baselineOnly, currentOnly, neither }, samples: [{ index, category, baseline: { valid, errors }, current: { valid, errors } }] }` |
@@ -461,6 +495,34 @@ curl -X POST http://localhost:8080/api/scan \
 #      "samples": [
 #        { "index": 0, "category": "both", "baseline": {...}, "current": {...} },
 #        { "index": 1, "category": "baselineOnly", ... }, ... ] }
+```
+
+按规则聚簇错误热点（同一规则跨数组下标合并，required/additionalProperties 按属性分簇）：
+
+```bash
+# 先归纳出 Schema，再粘贴待检样本集做热点分析
+SCHEMA=$(curl -s -X POST http://localhost:8080/api/infer \
+  -H 'Content-Type: application/json' \
+  -d '{"samples":[{"id":1,"name":"a","tags":["x"]},{"id":2,"name":"b","tags":["y"]}]}' \
+  | jq '.schema')
+
+curl -X POST http://localhost:8080/api/hotspots \
+  -H 'Content-Type: application/json' \
+  -d "{\"schema\":$SCHEMA,\"samples\":[
+        {\"id\":1,\"name\":\"ok\",\"tags\":[\"a\",1,true]},
+        {\"id\":\"x\",\"tags\":[null]},
+        {\"id\":3,\"name\":\"fine\",\"tags\":[\"z\"]}]}"
+# -> { "total": 3, "validSamples": 1, "invalidSamples": 2,
+#      "errorCount": 5, "clusterCount": 3,
+#      "clusters": [
+#        { "schemaPath": "#/properties/tags/items/type", "keyword": "type",
+#          "affectedSamples": 2, "errorCount": 3, "sampleIndexes": [0, 1],
+#          "instances": [{ "sampleIndex": 0, "pointer": "/tags/1", ... }, ...] },
+#        { "schemaPath": "#/properties/id/type", "keyword": "type", ... },
+#        { "schemaPath": "#/required", "keyword": "required",
+#          "missingProperty": "name", ... } ] }
+# —— tags 元素类型错误在 /tags/1、/tags/2、/tags/0 三处触发但同属一簇，
+#    按受影响样本数降序排列
 ```
 
 留一法分析样本贡献度（逐条移除样本重新归纳，判定关键/冗余）：
@@ -635,7 +697,8 @@ curl -s -X POST http://localhost:8080/api/relation/enhance \
 │   ├── slice.js            # 契约切片（按勾选的 Schema 树 Pointer 裁剪结构 + 投影样本 + Ajv 逐条校验，样本上限 200 条、Pointer 上限 20 个）
 │   ├── migrate.js          # 历史样本迁移（按路径深度规划源移除/目标写入 + 逐样本原子移动/补值，数组、父子重叠、目标冲突处理 + Ajv 按当前 Schema 校验，上限 200 条）
 │   ├── relation.js         # 字段关系挖掘（按对象 Pointer 作用域统计字段出现，数组元素独立计数，支持≥2/置信100% 蕴含与互斥 + 蕴含传递约简；增强 Schema 注入 dependentRequired / not+required 并用全部原样本 Ajv 复验）
-│   ├── app.js              # Express（/api/infer、/api/validate、/api/diff、/api/counterexample、/api/scan、/api/contribution、/api/variant、/api/anonymize、/api/slice、/api/migrate、/api/relation/mine、/api/relation/enhance、静态托管）
+│   ├── hotspot.js          # 错误热点聚簇（Ajv 逐条校验 + 按 schemaPath/keyword 聚簇，required/additionalProperties 按属性分簇，按受影响样本数降序，单次上限 200 条）
+│   ├── app.js              # Express（/api/infer、/api/validate、/api/hotspots、/api/diff、/api/counterexample、/api/scan、/api/contribution、/api/variant、/api/anonymize、/api/slice、/api/migrate、/api/relation/mine、/api/relation/enhance、静态托管）
 │   ├── index.js            # 入口：监听 PORT（默认 8080）
 │   └── test/               # node:test 单元与 API 测试
 └── client/
@@ -645,6 +708,7 @@ curl -s -X POST http://localhost:8080/api/relation/enhance \
         ├── gate.js                 # 发布门禁：SemVer 2.0.0 解析/比较 + 放行判定（纯函数）
         ├── components/SchemaTree.jsx   # 树形视图 + 样本路径标注 + const 徽章 + 契约切片可勾选模式
         ├── components/ValidatePanel.jsx # 校验面板：归纳 Schema / 事件变体契约双目标，JSON Pointer 错误列表
+        ├── components/HotspotPanel.jsx  # 错误热点：待检样本数组输入、按规则聚簇的热点列表（受影响样本数降序、可展开实例 Pointer）
         ├── components/DiffPanel.jsx     # 契约演进面板：视角切换、破坏性筛选、按 Pointer 分组
         ├── components/CounterexamplePanel.jsx # 反例：样本格式化展示、双侧校验结果、复制按钮
         ├── components/SampleScanPanel.jsx  # 样本影响扫描：数组输入、四分类汇总、单条双侧错误展开

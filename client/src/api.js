@@ -27,6 +27,10 @@ export function validateSample(schema, sample) {
   return request("/api/validate", { schema, sample });
 }
 
+export function analyzeHotspots(schema, samples) {
+  return request("/api/hotspots", { schema, samples });
+}
+
 export function diffSchemas(oldSchema, newSchema, perspective) {
   return request("/api/diff", { oldSchema, newSchema, perspective });
 }
